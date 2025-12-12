@@ -25,7 +25,7 @@ class FacebookCloneApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.white,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
-          foregroundColor: Colors.red,
+          foregroundColor: AppColors.darkText,
           elevation: 0,
           centerTitle: false,
           titleTextStyle: TextStyle(
