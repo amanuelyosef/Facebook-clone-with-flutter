@@ -8,4 +8,5 @@ class AppColors {
   static const darkText = Color(0xFF050505);
   static const textSecondary = Color(0xFF606770);
   static const surface = Color(0xFFF5F6F8);
+  static const logoRing = Color(0xFFCED0D4);
 }

@@ -57,15 +57,19 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/images/facebook_logo.png
 
 flutter_native_splash:
-  # Android focus only
   color: "#FFFFFF"
+  image: assets/images/facebook_logo.png
   android: true
   ios: false
   web: false
+  android_gravity: center
   android_12:
     color: "#FFFFFF"
+    image: assets/images/facebook_logo.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
