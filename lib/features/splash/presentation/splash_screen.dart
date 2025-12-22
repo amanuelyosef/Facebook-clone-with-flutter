@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../home/presentation/home_screen.dart';
+import '../../auth/presentation/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -40,8 +42,10 @@ class _SplashScreenState extends State<SplashScreen>
 
   void _goToHome() {
     if (!mounted) return;
+    final user = FirebaseAuth.instance.currentUser;
+    final dest = user != null ? const HomeScreen() : const LoginScreen();
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      MaterialPageRoute(builder: (_) => dest),
     );
   }
 
@@ -75,6 +79,7 @@ class _SplashScreenState extends State<SplashScreen>
               left: 0,
               right: 0,
               child: Column(
+                
                 mainAxisSize: MainAxisSize.min,
                 children: const [
                   Text(
@@ -84,6 +89,7 @@ class _SplashScreenState extends State<SplashScreen>
                       fontSize: 12,
                       letterSpacing: 0.2,
                     ),
+                    
                   ),
                   SizedBox(height: 6),
                   _MetaSignature(),
@@ -164,6 +170,7 @@ class _MetaSignature extends StatelessWidget {
           angle: -math.pi / 16,
           child: const Icon(
             Icons.all_inclusive,
+            
             color: AppColors.facebookBlue,
             size: 22,
           ),

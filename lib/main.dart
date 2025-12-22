@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import 'core/theme/app_colors.dart';
 import 'features/home/presentation/home_screen.dart';
 import 'features/splash/presentation/splash_screen.dart';
+import 'firebase_options.dart';
+import 'features/auth/presentation/login_screen.dart';
+import 'features/auth/presentation/sign_up_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const FacebookCloneApp());
 }
 
@@ -38,6 +46,8 @@ class FacebookCloneApp extends StatelessWidget {
       home: const SplashScreen(),
       routes: {
         HomeScreen.route: (_) => const HomeScreen(),
+        '/login': (_) => const LoginScreen(),
+        '/signup': (_) => const SignUpScreen(),
       },
     );
   }
