@@ -21,11 +21,19 @@ class _HomeScreenState extends State<HomeScreen> {
   List<_Post> _posts = [];
   List<_Story> _stories = [];
   bool _isLoading = true;
+  late final PageController _pageController;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _selectedTabIndex);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -133,6 +141,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final userPhoto = currentUser?.photoURL;
     final userInitial = userName.isNotEmpty ? userName[0].toUpperCase() : 'U';
 
+    void onTabSelected(int index) {
+      if (index == _selectedTabIndex) return;
+      setState(() => _selectedTabIndex = index);
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeInOut,
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: SafeArea(
@@ -141,50 +159,74 @@ class _HomeScreenState extends State<HomeScreen> {
             _FacebookHeader(onSignOut: () => _handleSignOut(context)),
             _NavigationTabs(
               selectedIndex: _selectedTabIndex,
-              onTabSelected: (index) =>
-                  setState(() => _selectedTabIndex = index),
+              onTabSelected: onTabSelected,
             ),
             Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: AppColors.facebookBlue,
-                      ),
-                    )
-                  : RefreshIndicator(
-                      color: AppColors.facebookBlue,
-                      onRefresh: () async {
-                        setState(() => _isLoading = true);
-                        await _loadData();
-                      },
-                      child: ListView(
-                        padding: EdgeInsets.zero,
-                        children: [
-                          _Composer(
-                            userName: userName,
-                            userPhoto: userPhoto,
-                            userInitial: userInitial,
-                          ),
-                          const _SectionSpacer(),
-                          _StoriesStrip(
-                            stories: _stories,
-                            userPhoto: userPhoto,
-                            userInitial: userInitial,
-                          ),
-                          const _SectionSpacer(),
-                          _CreateRoomSection(),
-                          const _SectionSpacer(),
-                          ..._posts.map((post) => _PostCard(post: post)),
-                        ],
-                      ),
-                    ),
+              child: PageView(
+                controller: _pageController,
+                physics: const BouncingScrollPhysics(),
+                onPageChanged: (index) =>
+                    setState(() => _selectedTabIndex = index),
+                children: [
+                  _buildFeedPage(userName, userPhoto, userInitial),
+                  _FriendsPage(
+                    requests: _friendRequests,
+                    suggestions: _friendSuggestions,
+                    friends: _allFriends,
+                  ),
+                  const _PlaceholderPage(title: 'Videos'),
+                  const _PlaceholderPage(title: 'Marketplace'),
+                  _NotificationsPage(notifications: _notifications),
+                  const _PlaceholderPage(title: 'Menu'),
+                ],
+              ),
             ),
           ],
         ),
       ),
       bottomNavigationBar: _FacebookBottomNav(
         selectedIndex: _selectedTabIndex,
-        onTabSelected: (index) => setState(() => _selectedTabIndex = index),
+        onTabSelected: onTabSelected,
+      ),
+    );
+  }
+
+  Widget _buildFeedPage(
+    String userName,
+    String? userPhoto,
+    String userInitial,
+  ) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.facebookBlue),
+      );
+    }
+
+    return RefreshIndicator(
+      color: AppColors.facebookBlue,
+      onRefresh: () async {
+        setState(() => _isLoading = true);
+        await _loadData();
+      },
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          _Composer(
+            userName: userName,
+            userPhoto: userPhoto,
+            userInitial: userInitial,
+          ),
+          const _SectionSpacer(),
+          _StoriesStrip(
+            stories: _stories,
+            userPhoto: userPhoto,
+            userInitial: userInitial,
+          ),
+          const _SectionSpacer(),
+          _CreateRoomSection(),
+          const _SectionSpacer(),
+          ..._posts.map((post) => _PostCard(post: post)),
+        ],
       ),
     );
   }
@@ -317,17 +359,17 @@ class _NavigationTabs extends StatelessWidget {
             onTap: () => onTabSelected(0),
           ),
           _NavTab(
-            icon: Icons.ondemand_video,
+            icon: Icons.people_outline,
             isSelected: selectedIndex == 1,
             onTap: () => onTabSelected(1),
           ),
           _NavTab(
-            icon: Icons.storefront_outlined,
+            icon: Icons.ondemand_video,
             isSelected: selectedIndex == 2,
             onTap: () => onTabSelected(2),
           ),
           _NavTab(
-            icon: Icons.people_outline,
+            icon: Icons.storefront_outlined,
             isSelected: selectedIndex == 3,
             onTap: () => onTabSelected(3),
           ),
@@ -401,6 +443,778 @@ class _NavTab extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FriendsPage extends StatefulWidget {
+  const _FriendsPage({
+    required this.requests,
+    required this.suggestions,
+    required this.friends,
+  });
+
+  final List<_FriendRequest> requests;
+  final List<_FriendSuggestion> suggestions;
+  final List<_Friend> friends;
+
+  @override
+  State<_FriendsPage> createState() => _FriendsPageState();
+}
+
+class _FriendsPageState extends State<_FriendsPage> {
+  String _activeTab = 'requests';
+  late List<_FriendRequest> _pendingRequests;
+  late List<_FriendSuggestion> _pendingSuggestions;
+
+  @override
+  void initState() {
+    super.initState();
+    _pendingRequests = List<_FriendRequest>.of(widget.requests);
+    _pendingSuggestions = List<_FriendSuggestion>.of(widget.suggestions);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget body;
+    if (_activeTab == 'requests') {
+      body = Column(
+        key: const ValueKey('requests'),
+        children: _pendingRequests.isEmpty
+            ? [const _EmptyState(label: 'No pending requests')]
+            : _pendingRequests
+                .map(
+                  (req) => _FriendRequestCard(
+                    request: req,
+                    onConfirm: () => setState(() {
+                      _pendingRequests.remove(req);
+                    }),
+                    onDelete: () => setState(() {
+                      _pendingRequests.remove(req);
+                    }),
+                  ),
+                )
+                .toList(),
+      );
+    } else if (_activeTab == 'suggestions') {
+      body = Column(
+        key: const ValueKey('suggestions'),
+        children: _pendingSuggestions.isEmpty
+            ? [const _EmptyState(label: 'No suggestions right now')]
+            : _pendingSuggestions
+                .map(
+                  (sug) => _FriendSuggestionCard(
+                    suggestion: sug,
+                    onAdd: () => setState(() {
+                      _pendingSuggestions.remove(sug);
+                    }),
+                    onRemove: () => setState(() {
+                      _pendingSuggestions.remove(sug);
+                    }),
+                  ),
+                )
+                .toList(),
+      );
+    } else {
+      body = _FriendsGrid(
+        key: const ValueKey('all'),
+        friends: widget.friends,
+      );
+    }
+
+    return Container(
+      color: AppColors.surface,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Friends',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.darkText,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.search, color: AppColors.darkText),
+              ),
+              IconButton(
+                onPressed: () {},
+                icon:
+                    const Icon(Icons.settings_outlined, color: AppColors.darkText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              _FriendsTabButton(
+                label: 'Requests',
+                isSelected: _activeTab == 'requests',
+                onTap: () => setState(() => _activeTab = 'requests'),
+                trailingCount: _pendingRequests.length,
+              ),
+              _FriendsTabButton(
+                label: 'Suggestions',
+                isSelected: _activeTab == 'suggestions',
+                onTap: () => setState(() => _activeTab = 'suggestions'),
+                trailingCount: _pendingSuggestions.length,
+              ),
+              _FriendsTabButton(
+                label: 'Your friends',
+                isSelected: _activeTab == 'all',
+                onTap: () => setState(() => _activeTab = 'all'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: body,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationsPage extends StatefulWidget {
+  const _NotificationsPage({required this.notifications});
+
+  final List<_NotificationItem> notifications;
+
+  @override
+  State<_NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<_NotificationsPage> {
+  String _filter = 'all';
+  late List<_NotificationItem> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = widget.notifications.toList();
+  }
+
+  void _markAllRead() {
+    setState(() {
+      _items = _items
+          .map((item) => item.isUnread ? item.copyWith(isUnread: false) : item)
+          .toList();
+    });
+  }
+
+  void _markRead(int index) {
+    if (!_items[index].isUnread) return;
+    setState(() {
+      _items[index] = _items[index].copyWith(isUnread: false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredEntries = _items
+        .asMap()
+        .entries
+        .where(
+          (entry) => _filter == 'unread' ? entry.value.isUnread : true,
+        )
+        .toList();
+
+    return Container(
+      color: AppColors.surface,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Notifications',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.darkText,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                onPressed: _markAllRead,
+                icon: const Icon(Icons.done_all, color: AppColors.darkText),
+              ),
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.search, color: AppColors.darkText),
+              ),
+              IconButton(
+                onPressed: () {},
+                icon:
+                    const Icon(Icons.settings_outlined, color: AppColors.darkText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              ChoiceChip(
+                label: const Text('All'),
+                selected: _filter == 'all',
+                onSelected: (_) => setState(() => _filter = 'all'),
+                selectedColor: AppColors.facebookBlue.withOpacity(0.14),
+                labelStyle: TextStyle(
+                  color: _filter == 'all'
+                      ? AppColors.facebookBlue
+                      : AppColors.darkText,
+                  fontWeight: FontWeight.w700,
+                ),
+                backgroundColor: Colors.white,
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('Unread'),
+                selected: _filter == 'unread',
+                onSelected: (_) => setState(() => _filter = 'unread'),
+                selectedColor: AppColors.facebookBlue.withOpacity(0.14),
+                labelStyle: TextStyle(
+                  color: _filter == 'unread'
+                      ? AppColors.facebookBlue
+                      : AppColors.darkText,
+                  fontWeight: FontWeight.w700,
+                ),
+                backgroundColor: Colors.white,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (filteredEntries.isEmpty)
+            const _EmptyState(label: 'No notifications to show')
+          else
+            ...filteredEntries.map(
+              (entry) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _NotificationCard(
+                  item: entry.value,
+                  onOpen: () => _markRead(entry.key),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FriendsTabButton extends StatelessWidget {
+  const _FriendsTabButton({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+    this.trailingCount,
+  });
+
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final int? trailingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = trailingCount != null && trailingCount! > 0
+        ? Container(
+            margin: const EdgeInsets.only(left: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.facebookBlue.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              trailingCount!.toString(),
+              style: const TextStyle(
+                color: AppColors.facebookBlue,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          )
+        : const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.facebookBlue.withOpacity(0.1)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color:
+                isSelected ? AppColors.facebookBlue : AppColors.lightGray,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color:
+                    isSelected ? AppColors.facebookBlue : AppColors.darkText,
+              ),
+            ),
+            badge,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationCard extends StatelessWidget {
+  const _NotificationCard({required this.item, required this.onOpen});
+
+  final _NotificationItem item;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: item.isUnread
+          ? AppColors.facebookBlue.withOpacity(0.06)
+          : Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: item.iconBackground,
+                ),
+                child: Icon(item.icon, color: AppColors.facebookBlue),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkText,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.subtitle,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Text(
+                          item.timeAgo,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        if (item.isUnread) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: AppColors.facebookBlue,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(
+                  Icons.more_horiz,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FriendRequestCard extends StatelessWidget {
+  const _FriendRequestCard({
+    required this.request,
+    required this.onConfirm,
+    required this.onDelete,
+  });
+
+  final _FriendRequest request;
+  final VoidCallback onConfirm;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.lightGray),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundImage: NetworkImage(request.avatarUrl),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  request.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.people_alt_outlined,
+                        size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${request.mutualFriends} mutual friends',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '· ${request.timeAgo}',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.facebookBlue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: onConfirm,
+                        child: const Text('Confirm'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.darkText,
+                          side: const BorderSide(color: AppColors.lightGray),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: onDelete,
+                        child: const Text('Delete'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FriendSuggestionCard extends StatelessWidget {
+  const _FriendSuggestionCard({
+    required this.suggestion,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final _FriendSuggestion suggestion;
+  final VoidCallback onAdd;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.lightGray),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundImage: NetworkImage(suggestion.avatarUrl),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  suggestion.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.people_alt_outlined,
+                        size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${suggestion.mutualFriends} mutual friends',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.facebookBlue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: onAdd,
+                        child: const Text('Add friend'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.darkText,
+                          side: const BorderSide(color: AppColors.lightGray),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: onRemove,
+                        child: const Text('Remove'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FriendsGrid extends StatelessWidget {
+  const _FriendsGrid({super.key, required this.friends});
+
+  final List<_Friend> friends;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      key: key,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: friends.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 3 / 2,
+      ),
+      itemBuilder: (_, index) {
+        final friend = friends[index];
+        return Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.lightGray),
+          ),
+          child: Row(
+            children: [
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundImage: NetworkImage(friend.avatarUrl),
+                  ),
+                  if (friend.isOnline)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF31A24C),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      friend.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${friend.mutualFriends} mutual friends',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.lightGray),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.group_outlined,
+              size: 32, color: AppColors.textSecondary),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaceholderPage extends StatelessWidget {
+  const _PlaceholderPage({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.surface,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.settings_input_component,
+                size: 46, color: AppColors.textSecondary),
+            const SizedBox(height: 12),
+            Text(
+              '$title coming soon',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1287,6 +2101,209 @@ class _OnlineFriend {
   const _OnlineFriend({required this.avatarUrl});
   final String avatarUrl;
 }
+
+class _FriendRequest {
+  const _FriendRequest({
+    required this.name,
+    required this.avatarUrl,
+    required this.mutualFriends,
+    required this.timeAgo,
+  });
+
+  final String name;
+  final String avatarUrl;
+  final int mutualFriends;
+  final String timeAgo;
+}
+
+class _FriendSuggestion {
+  const _FriendSuggestion({
+    required this.name,
+    required this.avatarUrl,
+    required this.mutualFriends,
+  });
+
+  final String name;
+  final String avatarUrl;
+  final int mutualFriends;
+}
+
+class _Friend {
+  const _Friend({
+    required this.name,
+    required this.avatarUrl,
+    required this.mutualFriends,
+    this.isOnline = false,
+  });
+
+  final String name;
+  final String avatarUrl;
+  final int mutualFriends;
+  final bool isOnline;
+}
+
+class _NotificationItem {
+  const _NotificationItem({
+    required this.title,
+    required this.subtitle,
+    required this.timeAgo,
+    required this.icon,
+    required this.iconBackground,
+    this.isUnread = true,
+  });
+
+  final String title;
+  final String subtitle;
+  final String timeAgo;
+  final IconData icon;
+  final Color iconBackground;
+  final bool isUnread;
+
+  _NotificationItem copyWith({bool? isUnread}) {
+    return _NotificationItem(
+      title: title,
+      subtitle: subtitle,
+      timeAgo: timeAgo,
+      icon: icon,
+      iconBackground: iconBackground,
+      isUnread: isUnread ?? this.isUnread,
+    );
+  }
+}
+
+const _friendRequests = <_FriendRequest>[
+  _FriendRequest(
+    name: 'Maya Patel',
+    avatarUrl: 'https://i.pravatar.cc/150?u=freq1',
+    mutualFriends: 8,
+    timeAgo: '2 h',
+  ),
+  _FriendRequest(
+    name: 'Lucas Martinez',
+    avatarUrl: 'https://i.pravatar.cc/150?u=freq2',
+    mutualFriends: 4,
+    timeAgo: '4 h',
+  ),
+  _FriendRequest(
+    name: 'Alicia Walker',
+    avatarUrl: 'https://i.pravatar.cc/150?u=freq3',
+    mutualFriends: 12,
+    timeAgo: '1 d',
+  ),
+];
+
+const _friendSuggestions = <_FriendSuggestion>[
+  _FriendSuggestion(
+    name: 'Noah Kim',
+    avatarUrl: 'https://i.pravatar.cc/150?u=fsug1',
+    mutualFriends: 6,
+  ),
+  _FriendSuggestion(
+    name: 'Sara Ahmed',
+    avatarUrl: 'https://i.pravatar.cc/150?u=fsug2',
+    mutualFriends: 3,
+  ),
+  _FriendSuggestion(
+    name: 'Daniel Green',
+    avatarUrl: 'https://i.pravatar.cc/150?u=fsug3',
+    mutualFriends: 9,
+  ),
+  _FriendSuggestion(
+    name: 'Victoria Lee',
+    avatarUrl: 'https://i.pravatar.cc/150?u=fsug4',
+    mutualFriends: 11,
+  ),
+];
+
+const _allFriends = <_Friend>[
+  _Friend(
+    name: 'Priya Singh',
+    avatarUrl: 'https://i.pravatar.cc/150?u=friend_a',
+    mutualFriends: 18,
+    isOnline: true,
+  ),
+  _Friend(
+    name: 'Michael Chen',
+    avatarUrl: 'https://i.pravatar.cc/150?u=friend_b',
+    mutualFriends: 10,
+    isOnline: false,
+  ),
+  _Friend(
+    name: 'Elena Petrova',
+    avatarUrl: 'https://i.pravatar.cc/150?u=friend_c',
+    mutualFriends: 5,
+    isOnline: true,
+  ),
+  _Friend(
+    name: 'David Brown',
+    avatarUrl: 'https://i.pravatar.cc/150?u=friend_d',
+    mutualFriends: 7,
+    isOnline: false,
+  ),
+  _Friend(
+    name: 'Hannah White',
+    avatarUrl: 'https://i.pravatar.cc/150?u=friend_e',
+    mutualFriends: 14,
+    isOnline: true,
+  ),
+  _Friend(
+    name: 'Jonas Keller',
+    avatarUrl: 'https://i.pravatar.cc/150?u=friend_f',
+    mutualFriends: 6,
+    isOnline: false,
+  ),
+];
+
+const _notifications = <_NotificationItem>[
+  _NotificationItem(
+    title: 'Maya accepted your friend request',
+    subtitle: 'You can now see each other’s posts and stories.',
+    timeAgo: '2m',
+    icon: Icons.person_add_alt,
+    iconBackground: Color(0xFFE8F3FF),
+    isUnread: true,
+  ),
+  _NotificationItem(
+    title: 'New comment on your post',
+    subtitle: 'Alyssa: “This looks awesome, thanks for sharing!”',
+    timeAgo: '18m',
+    icon: Icons.chat_bubble_outline,
+    iconBackground: Color(0xFFEAF5FF),
+    isUnread: true,
+  ),
+  _NotificationItem(
+    title: 'Event reminder',
+    subtitle: 'Product design meetup starts in 1 hour.',
+    timeAgo: '1h',
+    icon: Icons.event,
+    iconBackground: Color(0xFFE9F7F1),
+    isUnread: false,
+  ),
+  _NotificationItem(
+    title: 'Page you follow posted',
+    subtitle: 'Flutter Weekly just shared a new article.',
+    timeAgo: '3h',
+    icon: Icons.feed_outlined,
+    iconBackground: Color(0xFFF6F0FF),
+    isUnread: true,
+  ),
+  _NotificationItem(
+    title: 'Marketplace update',
+    subtitle: 'A laptop you saved dropped in price.',
+    timeAgo: '7h',
+    icon: Icons.storefront_outlined,
+    iconBackground: Color(0xFFFFF3E8),
+    isUnread: false,
+  ),
+  _NotificationItem(
+    title: 'Security alert',
+    subtitle: 'New login from Chrome on Windows.',
+    timeAgo: '1d',
+    icon: Icons.shield_outlined,
+    iconBackground: Color(0xFFE8F0FF),
+    isUnread: false,
+  ),
+];
 
 // Fallback data
 const _fallbackStories = <_Story>[
