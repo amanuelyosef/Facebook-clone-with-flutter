@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'core/theme/app_colors.dart';
-import 'features/home/presentation/home_screen.dart';
+import 'features/home/presentation/pages/home_screen.dart';
 import 'features/splash/presentation/splash_screen.dart';
 import 'firebase_options.dart';
 import 'features/auth/presentation/login_screen.dart';
